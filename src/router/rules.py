@@ -301,6 +301,24 @@ PRICE_TODAY_MARKERS = [r"\bhôm nay\b", r"\bngày hôm nay\b", r"\bphiên hôm n
 _PRICE_RECENT_MARKERS: list[tuple[str, int]] = [
     (r"\b(\d{1,2})\s*(?:phiên|ngày)\s*(?:gần đây|vừa qua|qua|trở lại đây)\b", 0),  # "5 ngày gần đây" -> lấy số
     (r"\blast\s+(\d{1,2})\s+(?:days?|sessions?)\b", 0),
+    # 2026-09-25 - mốc QUÁ KHỨ GẦN theo kiểu "hôm qua" / "N ngày trước".
+    # Lỗ định tuyến thật khi test demo: "What was VNM stock price yesterday?"
+    # và "What is VNM's stock price 3 day ago?" có đủ mã + "stock price"
+    # nhưng không khớp mốc thời gian nào ở đây -> rơi xuống RAG, trả "No
+    # information found" trong khi company_price_snapshot có sẵn đúng phiên
+    # đó. -1 = "N ngày trước" -> lấy N+1 phiên, để phiên N ngày trước chắc
+    # chắn nằm trong cửa sổ (xem _price_window_days()). "Hôm qua" lấy 2
+    # phiên chứ không phải 1: dữ liệu là EOD nạp mỗi ngày, nên tuỳ lúc hỏi,
+    # phiên mới nhất có thể là hôm nay HOẶC đã là hôm qua - trả 2 phiên có
+    # ghi ngày thì đúng trong cả hai trường hợp, không phải đoán.
+    (r"\b(\d{1,2})\s*(?:trading\s+)?(?:days?|sessions?)\s+ago\b", -1),
+    (r"\b(\d{1,2})\s*(?:ngày|phiên)\s*trước\b", -1),
+    (r"\bday before yesterday\b", 3),
+    (r"\bhôm kia\b", 3),
+    (r"\byesterday\b", 2),
+    (r"\bhôm qua\b", 2),
+    (r"\bphiên (?:trước|hôm qua)\b", 2),
+    (r"\b(?:previous|last|prior) (?:trading )?session\b", 2),
     (r"\b(\d{1,2})\s*(?:tuần)\s*(?:gần đây|vừa qua|qua)\b", -7),                   # n tuần -> n*7
     (r"\bvài (?:ngày|phiên)\b", 7),
     (r"\bmấy (?:ngày|phiên)\b", 7),
@@ -422,6 +440,8 @@ def _price_window_days(question: str) -> Optional[int]:
             return max(2, min(int(m.group(1)), 60))
         if default_days == -7 and m.groups():      # n tuần -> n*7
             return max(2, min(int(m.group(1)) * 7, 60))
+        if default_days == -1 and m.groups():      # "N ngày trước" -> N+1 phiên
+            return max(2, min(int(m.group(1)) + 1, 60))
         return default_days
     return None
 # Loại trừ tường minh: "giá" + "hôm nay" + có mã CŨNG khớp cho câu hỏi về
