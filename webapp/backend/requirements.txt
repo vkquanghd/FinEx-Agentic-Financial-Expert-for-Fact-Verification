@@ -1,0 +1,6 @@
+# Backend webapp (3 microservices) - cài TRONG venv sẵn có của repo
+# (.venv của Thesis_Project) vì services import src.* (router, feedback_store):
+#   source .venv/bin/activate && pip install -r webapp/backend/requirements.txt
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4

@@ -1,0 +1,48 @@
+# Thư viện RIÊNG của tầng phục vụ (api/) - cố ý tách khỏi
+# requirements.txt ở gốc repo (vốn nặng: torch, sentence-transformers,
+# streamlit, jupyter). Venv của api/ chỉ cần đủ để chạy 4 service.
+#
+# LƯU Ý: các service vẫn import src/* của luận văn, mà src/ cần sqlalchemy
+# + psycopg2 + ollama-client. Vì vậy venv này phải cài CẢ phần đó - xem
+# nhóm thứ hai bên dưới. Cái KHÔNG cần là torch/transformers, trừ khi bạn
+# chạy nhánh RAG (nó gọi embed_query -> sentence-transformers). Nếu muốn
+# demo đầy đủ cả RAG, cài thêm requirements-rag.txt.
+
+# --- tầng phục vụ ---
+fastapi>=0.121.0          # cần cho fastapi.sse (EventSourceResponse)
+uvicorn[standard]>=0.34.0
+httpx>=0.28.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+python-multipart>=0.0.20
+
+# --- phụ thuộc mà src/* cần (import Ở ĐẦU MODULE, không lazy) ---
+#
+# router/query_router.py import cả 5 nhánh (dag/rag/whatif/causal/compare)
+# ngay khi module nạp - dù một request chỉ cần nhánh DAG, sklearn/torch/
+# sentence-transformers vẫn phải có mặt lúc `import route` chạy. Version
+# khớp với requirements.txt gốc để không lệch hành vi giữa 2 venv.
+sqlalchemy>=2.0.36
+psycopg2-binary>=2.9.10
+pandas>=2.2.3
+numpy>=1.26.0
+requests>=2.32.0
+python-dotenv==1.0.1
+scikit-learn==1.5.2        # src/causal/treatment_effect.py (nhánh causal) - hard dep,
+                            # import ở ĐẦU MODULE nên bắt buộc để `import route` chạy
+                            # được, dù câu hỏi không hỏi gì về causal.
+# causalml, econml: KHÔNG cần cài - src/causal/treatment_effect.py import
+# chúng cục bộ TRONG HÀM (try/except, optional cross-check), không phải ở
+# đầu module. Thiếu chúng chỉ tắt phần "causalml_crosscheck", không lỗi.
+
+# torch, sentence-transformers: xác nhận bằng cách đọc trực tiếp
+# src/retrieval/embeddings.py - "import torch" (dòng 46) và
+# "from sentence_transformers import SentenceTransformer" (dòng 56) đều
+# nằm TRONG HÀM tải model (lazy), không phải đầu module. Nghĩa là QA
+# service KHỞI ĐỘNG được và trả lời được nhánh DAG/whatif/causal/compare
+# mà không cần 2 gói này - chỉ khi một câu hỏi thực sự rơi vào nhánh RAG
+# (gọi embed_query) thì mới cần, và sẽ lỗi rõ ràng lúc đó nếu chưa cài.
+# Cài trước nếu muốn demo cả nhánh RAG (lần đầu tải ~2.2GB trọng số
+# BAAI/bge-m3 từ HuggingFace - cần mạng thật, không chạy được offline):
+sentence-transformers>=3.0
+torch

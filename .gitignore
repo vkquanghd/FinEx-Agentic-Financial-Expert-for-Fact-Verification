@@ -1,0 +1,75 @@
+# Airflow runtime state (metadata DB, logs, generated admin password) -
+# lives inside the airflow_home docker volume normally, but guard against
+# it ever landing in the repo root too.
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+logs/
+
+__pycache__/
+*.pyc
+
+# Homebrew's Python 3.13 refuses global `pip install` (PEP 668,
+# "externally-managed-environment") - project venv lives here instead.
+.venv/
+
+# api/ (tầng phục vụ) - có venv riêng, cấu hình riêng
+api/.venv/
+api/.env
+api/certs/*.pem
+
+# Vietstock Premium session state. This is a local Playwright browser
+# profile created after the account owner logs in interactively. Never
+# commit cookies, tokens, cached responses, or downloaded premium files.
+data/private/
+data/raw/vietstock_premium/
+
+# 2026-09-25 - preparing the public GitHub repo. Everything below is kept
+# on disk (nothing deleted), just never tracked/pushed.
+
+# ALL of data/ (~21GB: scraped Vietstock exports, OCR'd PDFs, the Postgres
+# seed data, eval fixtures) - too large for git and likely contains
+# licensed/scraped third-party financial data, not something to publish.
+data/
+
+# Secrets. api/.env was already covered above; this adds the root .env
+# (DB password, ADMIN_API_KEY, SESSION_SECRET, FRED_API_KEY...). The
+# .example templates are intentionally NOT matched by this pattern (exact
+# filename ".env" only) and stay tracked as setup references.
+.env
+
+# OS/editor cruft
+.DS_Store
+.ipynb_checkpoints/
+
+# ML experiment scratch state (CatBoost logs, generated at train time)
+catboost_info/
+notebooks/catboost_info/
+
+# pytest cache
+.pytest_cache/
+
+# Internal working docs: thesis chapters/LaTeX, meeting notes with the
+# supervisor, progress log, budget emails, old research-direction PDFs,
+# admin forms, an unrelated Spanish-language research scratchpad (memoria/)
+# - none of this is meant for a public repo, and most of it is Vietnamese
+# internal notes anyway. Nothing here is deleted, just untracked - see
+# docs/DEV_NOTES.md (the old root README.md, moved here) for the full
+# internal run notes this project relied on day to day. The small set of
+# architecture diagrams reused in the public README/RUNNING.md were
+# copied out to assets/diagrams/ BEFORE this rule, so they stay tracked.
+docs/
+memoria/
+
+# Personal/admin files at repo root - not project code or docs.
+Email_xin_ngan_sach.md
+ServiceNow_Input_filled.docx
+ServiceNow_Input_s4123818.docx
+progress_tracker.html
+
+# Generated reports/artifacts (model files, CSV outputs, run reports) -
+# regenerable from data/ + src/, and data/ itself is already excluded
+# above, so these would be orphaned outputs with no way to reproduce them
+# from a repo checkout alone.
+reports/
+artifacts/

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Financial QA — Vietnamese Corporate Disclosures</title>
+    <!-- Tailwind qua CDN: đủ cho demo thesis, không cần build css riêng.
+         darkMode 'class' để toggle bằng nút trên TopBar. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+            animation: { "pulse-fast": "pulse 1s cubic-bezier(0.4,0,0.6,1) infinite" },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-thumb { background: rgba(120,120,140,.35); border-radius: 8px; }
+      .answer-body { white-space: pre-wrap; word-break: break-word; }
+    </style>
+  </head>
+  <body class="bg-slate-100 dark:bg-[#0b1020] transition-colors">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

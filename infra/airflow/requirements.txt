@@ -1,0 +1,48 @@
+# Extra packages the DAGs' BashOperator-invoked scripts need on top of
+# what apache/airflow:2.10.5-python3.11 already ships. Deliberately does
+# NOT include SQLAlchemy: the root requirements.txt pins SQLAlchemy==2.0.35
+# for your local venv, but forcing that exact version on top of Airflow's
+# own image broke Airflow's ORM (Airflow 2.10.5 needs a narrower/older
+# SQLAlchemy than 2.0.35 - installing 2.0.35 caused
+# "Type annotation for TaskInstance.dag_model can't be correctly
+# interpreted..." on every airflow command). Our own code
+# (src/core/db.py) only uses plain create_engine/sessionmaker/text() -
+# no ORM declarative models - so it works fine against whichever
+# SQLAlchemy version Airflow's constraints file resolves to; there's
+# nothing to gain and real breakage to lose by overriding it here.
+#
+# Also deliberately UNPINNED (no ==) for pandas/numpy/scikit-learn/openpyxl:
+# the root requirements.txt's exact pins (pandas==2.2.3 etc, chosen for
+# your local venv) collide with Airflow's own constraints file, which
+# hard-pins pandas==2.1.4 for this Airflow+Python combo - installing both
+# is a straight version conflict. Leaving these unpinned lets pip resolve
+# them to whatever the --constraint file below allows (falls back to
+# latest available for anything the constraints file doesn't mention).
+# Only pin something here if you hit an actual incompatibility, not
+# preemptively.
+#
+# PyMySQL removed 2026-07-26 (project migrated off MySQL onto a single
+# PostgreSQL database - see docs/PROGRESS.md). psycopg2-binary below now
+# covers every DB-touching task in every DAG, structured tables and
+# disclosure_chunks alike - nothing in the Airflow container talks to MySQL
+# anymore.
+python-dotenv==1.0.1
+openpyxl
+pandas
+scikit-learn
+numpy
+
+# --- Database (every DAG's tasks, via src/core/db.py) + RAG path
+# (thesis_pdf_refresh DAG: scripts/pdf_ingest_router.py,
+# src/retrieval/text_splitter.py + embeddings.py + vector_store.py) ---
+# Unpinned for the same reason as pandas/numpy above - let Airflow's own
+# constraints file resolve compatible versions instead of colliding with
+# the root requirements.txt's exact local-venv pins.
+psycopg2-binary
+sentence-transformers
+
+# --- Market snapshot (thesis_market_snapshot DAG: scripts/market_snapshot.py) ---
+# Same unpinned reasoning as above. requests ships with Airflow's own image
+# already, but listed for clarity since market_snapshot.py imports it directly.
+vnstock
+requests

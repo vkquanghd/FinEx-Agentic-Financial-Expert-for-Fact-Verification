@@ -1,0 +1,65 @@
+# Build context của Docker (2026-08-20).
+#
+# VÌ SAO CẦN: docker-compose.yml dùng `context: .` cho cả airflow lẫn 4
+# service API. Không có file này, MỖI lệnh build gửi ~6GB lên Docker
+# daemon trước khi chạy dòng Dockerfile đầu tiên:
+#     .venv/         2.0G
+#     data/raw/      2.8G   (358 PDF công bố thông tin)
+#     api/.venv/     1.1G
+# Không dòng Dockerfile nào COPY chúng cả, nên đây là 6GB gửi đi rồi vứt.
+#
+# LƯU Ý VỀ BIND MOUNT: loại trừ ở đây KHÔNG ảnh hưởng volume bind-mount
+# lúc chạy (`./src:/app/src`). .dockerignore chỉ chi phối context lúc
+# BUILD. Container vẫn thấy đầy đủ data/raw và code như thường.
+
+# --- môi trường ảo (mỗi cái vài GB, cài lại trong image bằng pip) ---
+.venv/
+api/.venv/
+webapp/**/.venv/
+
+# --- dữ liệu thô: bind-mount lúc chạy, không bao giờ nướng vào image ---
+data/raw/
+data/processed/
+data/interim/
+artifacts/
+catboost_info/
+reports/
+memoria/
+
+# --- Python rác ---
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- node ---
+node_modules/
+**/node_modules/
+
+# --- bí mật & chứng chỉ: TUYỆT ĐỐI không đưa vào image layer ---
+# (image layer đọc lại được kể cả khi file bị xoá ở layer sau)
+.env
+api/.env
+*.pem
+api/certs/*.pem
+
+# --- git & IDE ---
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# --- notebook & tài liệu: không cần để chạy service ---
+notebooks/
+docs/
+*.md
+!README.md
+
+# --- state runtime của Airflow ---
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+logs/

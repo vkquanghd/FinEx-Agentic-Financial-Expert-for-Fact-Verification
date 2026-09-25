@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Tĩnh, dùng cho crawler/preview trước khi Alpine chạy - app.js's
+     x-effect trên <body> sẽ ghi đè theo đúng uiLanguage ngay khi boot(). -->
+<title>Financial Q&amp;A · Vietnamese listed-company disclosures</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/styles.css">
+
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<!-- app.js PHẢI chạy trước alpine cdn: script defer thực thi theo đúng
+     thứ tự xuất hiện trong tài liệu, và Alpine tự khởi động (đánh giá
+     x-data="app()" trên <body>) ngay khi script của nó chạy xong. Nếu
+     alpine cdn nằm trước app.js, Alpine gọi app() trước khi hàm này tồn
+     tại -> "Alpine Expression Error: app is not defined" và toàn bộ
+     trang trắng (mọi view đều nằm trong x-show/x-cloak/template x-if,
+     phụ thuộc hoàn toàn vào Alpine chạy được). -->
+<script defer src="/app.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+<script defer src="/livereload.js"></script>
+</head>
+
+<body x-data="app()" x-init="boot()" :data-theme="theme" :lang="uiLanguage"
+      x-effect="document.title = tr('product') + ' · ' + tr('productSub')">
+
+<!-- ======================= đang kiểm tra phiên đăng nhập ======================= -->
+<div class="boot-screen" x-show="view === 'loading'" x-cloak x-text="uiLanguage === 'vi' ? 'Đang kiểm tra phiên đăng nhập…' : 'Checking your session…'"></div>
+
+<!-- ======================= màn hình đăng nhập ======================= -->
+<template x-if="view === 'login'">
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand__mark">FQA</span>
+        <div>
+          <div class="login-brand__name" x-text="tr('product')"></div>
+          <div class="login-brand__sub" x-text="tr('productSub')"></div>
+        </div>
+      </div>
+
+      <div class="control" style="justify-content:center; margin-bottom:14px">
+        <button class="seg" :aria-pressed="uiLanguage === 'en'" @click="setLanguage('en')">EN</button>
+        <button class="seg" :aria-pressed="uiLanguage === 'vi'" @click="setLanguage('vi')">VI</button>
+      </div>
+
+      <form @submit.prevent="login()">
+        <div class="field">
+          <label for="login-username" x-text="tr('loginUsernameLabel')"></label>
+          <input id="login-username" type="text" x-model="loginUsername"
+                 autocomplete="username" :placeholder="tr('loginUsernamePlaceholder')" autofocus>
+        </div>
+        <div class="field">
+          <label for="login-password" x-text="tr('loginPasswordLabel')"></label>
+          <input id="login-password" type="password" x-model="loginPassword"
+                 autocomplete="current-password" :placeholder="tr('loginPasswordPlaceholder')">
+        </div>
+
+        <div class="login-error" x-show="loginError" x-cloak x-text="loginError"></div>
+
+        <button type="submit" class="btn btn--primary" :disabled="loginBusy" style="width:100%">
+          <span x-show="!loginBusy" x-text="tr('loginButton')"></span>
+          <span x-show="loginBusy" x-cloak x-text="tr('loginChecking')"></span>
+        </button>
+      </form>
+
+      <div class="login-hint">
+        <strong x-text="tr('loginDemoHint')"></strong>
+        <div class="login-hint__row">
+          <span class="chip" style="--c: var(--br-dag)" x-text="tr('personaAnalyst')"></span>
+          <span x-text="tr('personaAnalystDesc')"></span>
+        </div>
+        <div class="login-hint__row">
+          <span class="chip" style="--c: var(--br-rag)" x-text="tr('personaAuditor')"></span>
+          <span x-text="tr('personaAuditorDesc')"></span>
+        </div>
+        <div class="login-hint__row">
+          <span class="chip" style="--c: var(--br-whatif)" x-text="tr('personaExecutive')"></span>
+          <span x-text="tr('personaExecutiveDesc')"></span>
+        </div>
+        <div class="login-hint__row">
+          <span class="chip" style="--c: var(--br-compare)" x-text="tr('personaInvestor')"></span>
+          <span x-text="tr('personaInvestorDesc')"></span>
+        </div>
+        <div class="login-hint__row">
+          <span class="chip" style="--c: var(--br-causal)" x-text="tr('personaAdmin')"></span>
+          <span x-text="tr('personaAdminDesc')"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trang trí thuần túy - danh mục mã đang có dữ liệu, KHÔNG phải giá
+         thật, chỉ gợi bảng giá chứng khoán và tạo chuyển động nền nhẹ. -->
+    <div class="ticker-strip" aria-hidden="true">
+      <div class="ticker-strip__track">
+        <template x-for="t in [...tickerStripItems, ...tickerStripItems]" :key="t.k">
+          <span class="ticker-strip__item">
+            <span class="tickr" x-text="t.t"></span>
+            <span class="control__label" style="padding:0" x-text="t.s"></span>
+          </span>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ======================= giao diện Chat (role=user) ======================= -->
+<template x-if="view === 'chat'">
+<div class="shell">
+
+  <!-- ======================= thanh trên ======================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark">FQA</span>
+      <span class="brand__name" x-text="tr('product')"></span>
+      <span class="brand__sub" x-text="tr('productSub')"></span>
+    </div>
+
+    <div class="topbar__spacer"></div>
+
+    <div class="controls">
+      <!-- Cửa sổ thời gian: điều khiển MỌI số liệu HITL bên phải. Đặt ở
+           thanh trên vì nó là bối cảnh của cả trang, không riêng một thẻ. -->
+      <div class="control">
+        <span class="control__label" x-text="tr('language')"></span>
+        <button class="seg" :aria-pressed="uiLanguage === 'en'" @click="setLanguage('en')">EN</button>
+        <button class="seg" :aria-pressed="uiLanguage === 'vi'" @click="setLanguage('vi')">VI</button>
+      </div>
+
+      <div class="control">
+        <span class="control__label" x-text="tr('window')"></span>
+        <template x-for="w in [7, 30, 90]" :key="w">
+          <button class="seg" :aria-pressed="windowDays === w"
+                  @click="setWindow(w)" x-text="windowLabel(w)"></button>
+        </template>
+      </div>
+
+      <!-- Chữ rõ ràng, không icon-only: nút icon (sun/moon qua Lucide) từng
+           bị vô hình khi CDN icon tải chậm/lỗi, trông như không có nút nào.
+           Dùng đúng kiểu segmented control như "Cửa sổ" bên trái - luôn
+           hiện được vì chỉ là chữ, không phụ thuộc thư viện ngoài. -->
+      <div class="control">
+        <span class="control__label" x-text="tr('appearance')"></span>
+        <button class="seg" :aria-pressed="theme === 'dark'"
+                @click="setTheme('dark')">🌙 <span x-text="tr('dark')"></span></button>
+        <button class="seg" :aria-pressed="theme === 'light'"
+                @click="setTheme('light')">☀️ <span x-text="tr('light')"></span></button>
+      </div>
+
+      <div class="control" style="padding: 7px 10px; gap: 7px;">
+        <span class="status-dot"
+              :class="health === 'ok' ? 'status-dot--ok' : (health === 'down' ? 'status-dot--down' : '')"></span>
+        <span class="control__label" style="padding: 0" x-text="healthLabel()"
+              :title="healthDetail()"></span>
+      </div>
+
+      <div class="control" style="padding: 7px 10px; gap: 7px;">
+        <span class="control__label" style="padding: 0" x-text="'👤 ' + (session?.username || '')"></span>
+        <span class="chip" x-show="session?.persona" x-cloak
+              :style="`--c: var(--br-dag)`" x-text="personaLabel()"></span>
+      </div>
+      <button class="btn btn--sm" @click="logout()" x-text="tr('logout')"></button>
+    </div>
+  </header>
+
+  <!-- =============== routing rail (phần tử chữ ký) =============== -->
+  <section class="rail" :data-state="railState"
+           :style="`--pulse-color: ${activeColor()}`"
+           :aria-label="tr('routingStatusAria')">
+    <span class="rail__label" x-text="tr('router')"></span>
+
+    <div class="rail__track">
+      <template x-for="b in branches" :key="b.id">
+        <div class="station"
+             :data-active="activeBranch === b.id"
+             :style="`--c: var(--br-${b.id})`">
+          <span class="station__dot"></span>
+          <span class="station__name" x-text="b.id.toUpperCase()"></span>
+          <span class="station__hint" x-text="branchHint(b.id)"></span>
+        </div>
+      </template>
+    </div>
+
+    <div class="rail__verdict">
+      <strong x-text="railHeadline()"></strong>
+      <span x-text="railDetail()"></span>
+    </div>
+  </section>
+
+  <!-- ======================= vùng chính ======================= -->
+  <main class="main">
+
+    <!-- ---------------------- hội thoại ---------------------- -->
+    <section class="panel">
+      <div class="panel__head">
+      <span class="panel__title" x-text="tr('conversation')"></span>
+        <span class="panel__note" x-text="`${tr('sessionLabel')} ${sessionId.slice(0, 8)}`"></span>
+        <div style="flex:1"></div>
+        <button class="btn btn--sm" @click="resetSession()"
+                :disabled="!turns.length" x-text="tr('newSession')"></button>
+      </div>
+
+      <div class="stream" x-ref="stream">
+
+        <!-- màn hình trống: lời mời hành động, không phải chỗ trang trí -->
+        <div class="empty" x-show="!turns.length && !busy" x-cloak>
+          <h2 x-text="tr('emptyTitle')"></h2>
+          <p x-text="tr('emptyText')"></p>
+          <div class="suggest">
+            <template x-for="s in samples()" :key="s.q">
+              <button @click="draft = s.q; send()" :style="`--c: var(--br-${s.b})`">
+                <span class="chip" x-text="s.b"></span>
+                <span x-text="s.q"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- các lượt -->
+        <template x-for="(t, i) in turns" :key="i">
+          <div class="turn">
+
+            <template x-if="t.role === 'user'">
+              <div class="bubble bubble--user" x-text="t.text"></div>
+            </template>
+
+            <template x-if="t.role === 'bot'">
+              <div>
+                <div class="turn__meta">
+                  <span class="chip" :style="`--c: var(--br-${baseBranch(t.branch)})`"
+                        x-text="t.branch"></span>
+                  <span x-show="t.fallback_from"
+                        x-text="`${tr('fallback')} ${t.fallback_from}`"></span>
+                  <span x-text="latencyLabel(t.latency_ms)"></span>
+                  <!-- 2026-09-24 (RQ3): tách hai hiện tượng vốn bị gộp làm
+                       một. resolved_question khác câu gốc có thể vì khai
+                       triển viết tắt HOẶC vì bộ nhớ hội thoại giải nghĩa
+                       câu hỏi nối tiếp - hai chuyện hoàn toàn khác nhau,
+                       mà cái thứ hai chính là RQ3. Trước đây cả hai đều
+                       hiện đúng một nhãn "đã khai triển viết tắt". -->
+                  <span x-show="t.resolved_question && !t.context_resolved"
+                        :title="tr('abbreviationExpandedTooltip')">
+                    <span x-text="tr('abbreviationExpanded')"></span>
+                  </span>
+                  <span x-show="t.context_resolved" :title="tr('contextResolvedTooltip')">
+                    <span x-text="tr('contextResolved')"></span>
+                  </span>
+                </div>
+
+                <!-- Câu đã viết lại, hiện NGUYÊN VĂN. Không có dòng này thì
+                     bộ nhớ hoạt động đúng cũng không chứng minh được gì:
+                     câu trả lời chỉ trông "có vẻ đúng", người xem không thể
+                     biết hệ thống đã hiểu "nó"/"that" là công ty nào. -->
+                <div class="gauge__foot" x-show="t.context_resolved" x-cloak>
+                  <span x-text="tr('resolvedAsLabel')"></span>
+                  <em x-text="t.resolved_question"></em>
+                </div>
+
+                <div class="bubble bubble--bot"
+                     :style="`--c: var(--br-${baseBranch(t.branch)})`">
+                  <div class="answer" x-html="renderAnswer(t.answer)"></div>
+
+                  <!-- 2026-09-25: kết quả của verify_numeric_claims(), trước
+                       đây tính xong rồi bị vứt ở tầng API. Chỉ hiện khi có
+                       số LỆCH nguồn - xem numericWarnings() trong app.js. -->
+                  <div class="numeric-warn" x-show="numericWarnings(t).length" x-cloak>
+                    <strong x-text="tr('numericWarnTitle')"></strong>
+                    <template x-for="(w, i) in numericWarnings(t)" :key="i">
+                      <div x-text="w"></div>
+                    </template>
+                    <div class="gauge__foot" x-text="tr('numericWarnFoot')"></div>
+                  </div>
+
+                  <details class="sources" x-show="t.sources && t.sources.length">
+                    <summary x-text="`${t.sources?.length || 0} ${tr('sourceCount')}`"></summary>
+                    <template x-for="(s, j) in (t.sources || [])" :key="j">
+                      <div class="source-row">
+                        <span class="tickr" x-text="s.ticker"></span>
+                        <span class="source-row__file" x-text="s.source_file"></span>
+                        <span x-text="`${tr('page')}${s.page}`"></span>
+                        <span class="tag"
+                              :class="s.retrieval === 'both' ? 'tag--both' : (s.retrieval === 'lexical' ? 'tag--lexical' : '')"
+                              x-show="s.retrieval" x-text="retrievalLabel(s.retrieval)"></span>
+                      </div>
+                    </template>
+                  </details>
+
+                  <div class="note" x-show="t.intent_reason" x-text="t.intent_reason"></div>
+                </div>
+              </div>
+            </template>
+
+          </div>
+        </template>
+
+        <!-- đang chạy: cho thấy đang ở chặng nào, không phải spinner câm -->
+        <div class="working" x-show="busy" x-cloak
+             :style="`--c: var(--br-${baseBranch(activeBranch || 'rag')})`">
+          <span class="working__bars"><i></i><i></i><i></i><i></i></span>
+          <span x-text="stageText"></span>
+        </div>
+
+      </div>
+
+      <div class="composer">
+        <!-- 2026-09-22: dải "phải đánh giá trước khi hỏi tiếp" đã bỏ. Việc
+             chấm điểm giờ nằm gọn trong một dòng sao ngay dưới câu trả lời
+             (xem tabpane 'rate'), và nếu người dùng hỏi tiếp mà chưa chấm
+             thì app.js's send() tự ghi một lượt bỏ qua ngầm - mẫu số của
+             tỷ lệ phản hồi vẫn đầy đủ, chỉ là không chặn ai nữa. -->
+
+        <div class="composer__row">
+          <textarea x-model="draft" x-ref="input" rows="1"
+                    :disabled="busy"
+                    @input="autogrow($event.target)"
+                    @keydown.enter.prevent="if (!$event.shiftKey) send()"
+                    :placeholder="tr('placeholder')"></textarea>
+          <button class="send" @click="send()"
+                  :disabled="busy || !draft.trim()"
+                  :aria-label="tr('sendQuestionAria')">
+            <i data-lucide="arrow-up"></i>
+          </button>
+        </div>
+
+        <div class="composer__hint">
+          <span><kbd>Enter</kbd> <span x-text="tr('enterHint')"></span> · <kbd>Shift</kbd>+<kbd>Enter</kbd> <span x-text="tr('newlineHint')"></span></span>
+          <label class="composer__strategy">
+            <span x-text="tr('system')"></span>
+            <select x-model="strategy" :disabled="busy" :aria-label="tr('chooseSystemAria')">
+              <option value="s3">S3 · Router</option>
+              <option value="s1">S1 · RAG</option>
+              <option value="s2">S2 · DAG</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------- HITL ---------------------- -->
+    <aside class="panel panel--hitl">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" :aria-selected="tab === 'rate'" @click="tab = 'rate'" x-text="tr('tabRate')">
+        </button>
+        <button class="tab" role="tab" :aria-selected="tab === 'queue'" @click="tab = 'queue'; loadQueue()">
+          <span x-text="tr('tabQueue')"></span>
+          <span class="tab__count" x-show="queue.length" x-text="queue.length"></span>
+        </button>
+        <button class="tab" role="tab" :aria-selected="tab === 'regression'" @click="tab = 'regression'; loadRegressionCandidates()">
+          <span x-text="tr('tabRegression')"></span>
+          <span class="tab__count" x-show="regressionCandidates.length" x-text="regressionCandidates.length"></span>
+        </button>
+      </div>
+
+      <!-- ===== tầng 1: thu tín hiệu ===== -->
+      <div class="tabpane" x-show="tab === 'rate'" x-cloak>
+        <div class="block">
+          <div class="block__title" x-text="tr('tier1Title')"></div>
+
+          <div class="muted-empty" x-show="!pending" x-text="tr('noPendingAnswer')">
+          </div>
+
+          <template x-if="pending">
+            <div class="block">
+              <div class="qitem">
+                <div class="qitem__q" x-text="pending.question"></div>
+                <div class="qitem__a" x-text="pending.answer"></div>
+              </div>
+
+              <!-- 2026-09-22: bấm một sao là chấm xong. Chọn sao sẽ TỰ mở
+                   phần chi tiết (lý do + ghi chú) bên dưới, nên trường hợp
+                   phổ biến nhất - chấm rồi đi tiếp - chỉ tốn đúng 2 cú bấm,
+                   trong khi người muốn viết kỹ vẫn có đủ chỗ. -->
+              <div class="field">
+                <label x-text="tr('ratingQuestion')"></label>
+                <div class="stars">
+                  <template x-for="n in [1,2,3,4,5]" :key="n">
+                    <button class="star" :aria-pressed="rating === n"
+                            @click="rating = n; rateExpanded = true"
+                            :style="`--sc: ${starColor(n)}`" x-text="n"></button>
+                  </template>
+                </div>
+                <div class="gauge__foot" x-text="ratingHint()"></div>
+              </div>
+
+              <div x-show="rateExpanded" x-cloak>
+                <div class="field" x-show="rating && rating <= 3">
+                  <label x-text="tr('wrongWhereLabel')"></label>
+                  <select x-model="reasonCode">
+                    <option value="" x-text="tr('reasonPlaceholder')"></option>
+                    <template x-for="r in reasons()" :key="r.v">
+                      <option :value="r.v" x-text="r.t"></option>
+                    </template>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label x-text="tr('noteLabel')"></label>
+                  <input type="text" x-model="freeText" :placeholder="tr('notePlaceholder')">
+                </div>
+              </div>
+
+              <div class="btn-row">
+                <button class="btn btn--primary" @click="submitFeedback(false)"
+                        :disabled="!rating || sending" x-text="tr('submitFeedback')"></button>
+                <button class="btn" @click="submitFeedback(true)" :disabled="sending" x-text="tr('skipFeedback')"></button>
+              </div>
+
+              <p class="explain" x-text="tr('skipExplain')">
+              </p>
+              <p class="explain" x-text="tr('implicitSkipExplain')">
+              </p>
+            </div>
+          </template>
+        </div>
+
+        <div class="block">
+          <div class="block__title" x-text="tr('feedbackDestinationTitle')"></div>
+          <div class="boundary">
+            <div class="bstage">
+              <span class="bstage__n">1</span>
+              <span class="bstage__t"><strong x-text="tr('bstage1Title')"></strong>
+                <span x-text="tr('bstage1Desc')"></span></span>
+            </div>
+            <div class="bstage bstage--gate">
+              <span class="bstage__n">2</span>
+              <span class="bstage__t"><strong x-text="tr('bstage2Title')"></strong>
+                <span x-text="tr('bstage2Desc')"></span></span>
+            </div>
+            <div class="bstage">
+              <span class="bstage__n">3</span>
+              <span class="bstage__t"><strong x-text="tr('bstage3Title')"></strong>
+                <span x-text="tr('bstage3Desc')"></span></span>
+            </div>
+          </div>
+          <p class="explain" x-text="tr('boundaryExplain')">
+          </p>
+        </div>
+      </div>
+
+      <!-- ===== tầng 2: hàng đợi review ===== -->
+      <div class="tabpane" x-show="tab === 'queue'" x-cloak>
+        <div class="block">
+          <div class="block__title" x-text="tr('tier2Title')"></div>
+          <p class="explain" x-text="tr('tier2Explain')">
+          </p>
+        </div>
+
+        <div class="muted-empty" x-show="!queue.length" x-text="tr('queueEmpty')">
+        </div>
+
+        <template x-for="item in queue" :key="item.review_id">
+          <div class="qitem">
+            <div class="qitem__why">
+              <i data-lucide="alert-circle" style="width:12px;height:12px"></i>
+              <span x-text="item.source_label"></span>
+              <span class="chip" style="--c: var(--text-3)" x-text="item.branch"></span>
+            </div>
+            <div class="qitem__q" x-text="item.question_text"></div>
+            <div class="qitem__a" x-text="item.answer_text"></div>
+            <textarea class="plain" x-model="item._expected" rows="3"
+                      :placeholder="tr('expectedAnswerPlaceholder')"></textarea>
+            <input type="text" x-model="item._sources" :placeholder="tr('sourcesNeededPlaceholder')">
+            <input type="text" x-model="item._note" :placeholder="tr('reviewNotePlaceholder')">
+            <div class="btn-row">
+              <button class="btn btn--primary btn--sm" @click="promoteRegression(item)"
+                      :disabled="!item._expected.trim() || item._promoting">
+                <span x-show="!item._promoting" x-text="tr('createRegressionBtn')"></span>
+                <span x-show="item._promoting" x-cloak x-text="tr('creatingRegression')"></span>
+              </button>
+              <button class="btn btn--sm" @click="resolveItem(item, 'reviewed')" x-text="tr('reviewedBtn')"></button>
+              <button class="btn btn--sm" @click="resolveItem(item, 'dismissed')" x-text="tr('dismissBtn')"></button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ===== curated regression candidates ===== -->
+      <div class="tabpane" x-show="tab === 'regression'" x-cloak>
+        <div class="block">
+          <div class="block__title" x-text="tr('regressionApprovedTitle')"></div>
+          <p class="explain" x-text="tr('regressionExplain')">
+          </p>
+        </div>
+
+        <div class="muted-empty" x-show="!regressionCandidates.length" x-text="tr('regressionEmpty')">
+        </div>
+
+        <template x-for="item in regressionCandidates" :key="item.id">
+          <div class="qitem" x-init="item._deciding = false; item._reversing = false; item._reverseNote = ''">
+            <div class="qitem__why">
+              <span class="chip" style="--c: var(--px-ceil)">candidate</span>
+              <span x-text="item.status"></span>
+            </div>
+            <div class="qitem__q" x-text="item.question_text"></div>
+            <div class="qitem__a"><strong x-text="tr('expectedLabel')"></strong> <span x-text="item.expected_answer"></span></div>
+            <div class="gauge__foot" x-show="item.expected_sources" x-text="item.expected_sources"></div>
+            <!-- 2026-09-22: ai viết / ai duyệt. Hiện thẳng ra chứ không giấu
+                 trong DB - người sắp bấm Accept cần thấy đáp án này do ai
+                 soạn, và thấy ngay nếu đó chính là mình. -->
+            <div class="gauge__foot" x-text="provenanceLine(item)"></div>
+            <div class="btn-row" x-show="item.status === 'candidate'">
+              <button class="btn btn--primary btn--sm" @click="decideRegression(item, 'accepted')"
+                      :disabled="item._deciding" x-text="tr('acceptExportBtn')"></button>
+              <button class="btn btn--sm" @click="decideRegression(item, 'rejected')"
+                      :disabled="item._deciding" x-text="tr('rejectBtn')"></button>
+            </div>
+            <!-- 2026-09-22: trước đây khi đã quyết định thì hai nút chỉ biến
+                 mất, không một chữ giải thích - nhìn y hệt như nút bị hỏng.
+                 Giờ nói rõ mục này đã được chốt và chốt theo hướng nào. -->
+            <div class="gauge__foot" x-show="item.status !== 'candidate'"
+                 x-text="tr('regressionDecidedNote').replace('{status}', item.status)"></div>
+
+            <!-- 2026-09-22: lật lại một quyết định đã có. Trước đây quyết
+                 định là khoá vĩnh viễn - một đáp án rác lỡ được accept thì
+                 nằm mãi trong fixture, không gỡ được qua giao diện. Ô lý do
+                 là BẮT BUỘC (cả ở đây lẫn ở backend): "vì sao lật lại"
+                 chính là phần giải trình được của thao tác này, và nó được
+                 ghi vào nhật ký chỉ-ghi-thêm regression_decisions. -->
+            <div x-show="item.status !== 'candidate'" x-cloak>
+              <div class="btn-row" x-show="!item._reversing">
+                <button class="btn btn--sm" @click="item._reversing = true"
+                        x-text="tr('reverseBtn')"></button>
+              </div>
+              <div x-show="item._reversing" x-cloak>
+                <div class="field">
+                  <label x-text="tr('reverseReasonLabel')"></label>
+                  <input type="text" x-model="item._reverseNote"
+                         :placeholder="tr('reverseReasonPlaceholder')">
+                </div>
+                <div class="btn-row">
+                  <button class="btn btn--primary btn--sm" @click="reverseRegression(item)"
+                          :disabled="item._deciding || !(item._reverseNote || '').trim()"
+                          x-text="tr('reverseConfirmBtn').replace('{status}', item.status === 'accepted' ? 'rejected' : 'accepted')"></button>
+                  <button class="btn btn--sm" @click="item._reversing = false; item._reverseNote = ''"
+                          x-text="tr('cancelBtn')"></button>
+                </div>
+                <p class="explain" x-text="tr('reverseExplain')"></p>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </aside>
+  </main>
+</div>
+</template>
+
+<!-- ======================= dashboard Admin (role=admin) ======================= -->
+<template x-if="view === 'admin'">
+<div class="admin-shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark">FQA</span>
+      <span class="brand__name" x-text="tr('adminTitle')"></span>
+      <span class="brand__sub" x-text="tr('adminSubtitle')"></span>
+    </div>
+
+    <div class="topbar__spacer"></div>
+
+    <div class="controls">
+      <div class="control">
+        <span class="control__label" x-text="tr('language')"></span>
+        <button class="seg" :aria-pressed="uiLanguage === 'en'" @click="setLanguage('en')">EN</button>
+        <button class="seg" :aria-pressed="uiLanguage === 'vi'" @click="setLanguage('vi')">VI</button>
+      </div>
+      <div class="control">
+        <span class="control__label" x-text="tr('appearance')"></span>
+        <button class="seg" :aria-pressed="theme === 'dark'"
+                @click="setTheme('dark')">🌙 <span x-text="tr('dark')"></span></button>
+        <button class="seg" :aria-pressed="theme === 'light'"
+                @click="setTheme('light')">☀️ <span x-text="tr('light')"></span></button>
+      </div>
+
+      <div class="control" style="padding: 7px 10px; gap: 7px;">
+        <span class="status-dot"
+              :class="health === 'ok' ? 'status-dot--ok' : (health === 'down' ? 'status-dot--down' : '')"></span>
+        <span class="control__label" style="padding: 0" x-text="healthLabel()"
+              :title="healthDetail()"></span>
+      </div>
+
+      <div class="control" style="padding: 7px 10px; gap: 7px;">
+        <span class="control__label" style="padding: 0" x-text="'👤 ' + (session?.username || '')"></span>
+      </div>
+      <button class="btn btn--sm" @click="logout()" x-text="tr('logout')"></button>
+    </div>
+  </header>
+
+  <section class="admin-body">
+    <div class="admin-toolbar">
+      <span class="admin-toolbar__title" x-text="tr('pipelineOverview')"></span>
+      <button class="btn btn--sm" @click="loadAdmin()" :disabled="adminLoading">
+        <span x-show="!adminLoading" x-text="tr('refresh')"></span>
+        <span x-show="adminLoading" x-cloak x-text="tr('refreshing')"></span>
+      </button>
+    </div>
+
+    <!-- ======= tab (2026-09-08) - trước là 5 panel xếp chồng trên 1 trang,
+         giờ tách theo tab để không phải cuộn dài, cùng kiểu .tabs/.tab đã
+         dùng ở bảng HITL bên tab Chat. -->
+    <div class="tabs" role="tablist" style="border-radius: var(--radius-sm); border: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); margin-bottom: 14px; background: var(--surface-1)">
+      <button class="tab" role="tab" :aria-selected="adminTab === 'overview'" @click="adminTab = 'overview'" x-text="tr('tabOverview')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'coverage'" @click="adminTab = 'coverage'" x-text="tr('tabCoverage')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'models'" @click="adminTab = 'models'" x-text="tr('tabModels')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'tables'" @click="adminTab = 'tables'" x-text="tr('tabTables')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'files'" @click="adminTab = 'files'" x-text="tr('tabFiles')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'vietstock'" @click="adminTab = 'vietstock'" x-text="tr('sync')">
+      </button>
+      <button class="tab" role="tab" :aria-selected="adminTab === 'prices'" @click="adminTab = 'prices'; loadPriceTickers()" x-text="tr('tabPrices')">
+      </button>
+    </div>
+
+    <!-- ---- Tổng quan ---- -->
+    <div x-show="adminTab === 'overview'" x-cloak>
+      <div class="stat-grid">
+        <template x-for="s in adminStatCards()" :key="s.key">
+          <div class="stat-card">
+            <span class="stat-card__label" x-text="s.label"></span>
+            <span class="stat-card__value" x-text="s.value"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ---- Coverage theo mã ---- -->
+    <div x-show="adminTab === 'coverage'" x-cloak class="panel">
+      <div class="panel__head">
+        <span class="panel__title" x-text="tr('coverageTitle')"></span>
+        <span class="panel__note" x-text="coverage.length + ' ' + tr('coverageCountSuffix')"></span>
+      </div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th x-text="tr('colTicker')"></th><th x-text="tr('colStructuredPeriods')"></th><th x-text="tr('colYears')"></th>
+              <th x-text="tr('colChunks')"></th><th x-text="tr('colDocTypes')"></th><th x-text="tr('colModality')"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in coverage" :key="row.ticker">
+              <tr>
+                <td><span class="tickr" x-text="row.ticker"></span></td>
+                <td class="num" x-text="row.n_structured_periods"></td>
+                <td x-text="row.year_min ? `${row.year_min}–${row.year_max}` : '—'"></td>
+                <td class="num" x-text="row.n_chunks"></td>
+                <td class="num" x-text="row.n_doctypes"></td>
+                <td>
+                  <span class="modality-dot" :class="row.n_structured_periods ? 'modality-dot--on' : ''"
+                        :title="uiLanguage === 'vi' ? 'Có số liệu structured (financial_line_items)' : 'Has structured figures (financial_line_items)'"></span>
+                  <span class="modality-dot" :class="row.n_chunks ? 'modality-dot--on' : ''"
+                        :title="uiLanguage === 'vi' ? 'Có tài liệu RAG (disclosure_chunks)' : 'Has RAG documents (disclosure_chunks)'"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="muted-empty" x-show="!coverage.length && !adminLoading" x-text="tr('coverageEmpty')">
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Model registry ---- -->
+    <div x-show="adminTab === 'models'" x-cloak class="panel">
+      <div class="panel__head">
+        <span class="panel__title" x-text="tr('modelsTitle')"></span>
+        <span class="panel__note" x-text="models.length + ' ' + tr('modelsCountSuffix')"></span>
+      </div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th x-text="tr('colTask')"></th><th x-text="tr('colModel')"></th><th x-text="tr('colVersion')"></th><th x-text="tr('colCalibration')"></th>
+              <th x-text="tr('colChampion')"></th><th x-text="tr('colFrozenAt')"></th><th x-text="tr('colValidationMetrics')"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="m in models" :key="m.model_id">
+              <tr>
+                <td x-text="m.task"></td>
+                <td x-text="m.model_name"></td>
+                <td class="num" x-text="m.model_version"></td>
+                <td x-text="m.calibration_method || '—'"></td>
+                <td>
+                  <span class="chip" :style="m.is_champion ? '--c: var(--px-up)' : '--c: var(--text-3)'"
+                        x-text="m.is_champion ? 'CHAMPION' : '—'"></span>
+                </td>
+                <td x-text="m.frozen_at ? formatDate(m.frozen_at) : '—'"></td>
+                <td class="admin-metrics" :title="formatMetrics(m.validation_metrics)"
+                    x-text="formatMetrics(m.validation_metrics)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="muted-empty" x-show="!models.length && !adminLoading" x-text="tr('modelsEmpty')">
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Kiểm kê bảng dữ liệu (2026-09-08) ---- -->
+    <div x-show="adminTab === 'tables'" x-cloak class="panel">
+      <div class="panel__head">
+        <span class="panel__title" x-text="tr('tablesTitle')"></span>
+        <span class="panel__note" x-text="tables.length + ' ' + tr('tablesCountSuffix')"></span>
+      </div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th x-text="tr('colTable')"></th><th x-text="tr('colRowCount')"></th></tr>
+          </thead>
+          <tbody>
+            <template x-for="t in tables" :key="t.table">
+              <tr>
+                <td><code x-text="t.table"></code></td>
+                <td class="num">
+                  <span x-show="t.row_count !== null" x-text="Number(t.row_count).toLocaleString(uiLanguage === 'vi' ? 'vi-VN' : 'en-US')"></span>
+                  <span x-show="t.row_count === null" class="chip" style="--c: var(--px-down)" :title="t.error" x-text="tr('errorChip')"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="muted-empty" x-show="!tables.length && !adminLoading" x-text="tr('tablesEmpty')">
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Tài liệu theo mã (pdf_documents) (2026-09-08) ---- -->
+    <div x-show="adminTab === 'files'" x-cloak class="panel">
+      <div class="panel__head">
+        <span class="panel__title" x-text="tr('filesTitle')"></span>
+        <span class="panel__note" x-text="files.length + ' ' + tr('filesCountSuffix')"></span>
+        <div style="flex:1"></div>
+        <input type="text" x-model="fileTickerFilter" :placeholder="tr('filterPlaceholder')"
+               style="max-width:160px" @keydown.enter="loadFiles()">
+        <button class="btn btn--sm" @click="loadFiles()" :disabled="filesLoading">
+          <span x-show="!filesLoading" x-text="tr('filterBtn')"></span>
+          <span x-show="filesLoading" x-cloak x-text="tr('refreshing')"></span>
+        </button>
+      </div>
+      <p class="explain" style="padding: 0 14px 10px" x-text="tr('filesExplain')">
+      </p>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th x-text="tr('colTicker')"></th><th x-text="tr('colFile')"></th><th x-text="tr('colDocType')"></th><th x-text="tr('colYear')"></th><th x-text="tr('colPages')"></th>
+              <th x-text="tr('colSource')"></th><th x-text="tr('colVersion')"></th><th x-text="tr('colActive')"></th><th x-text="tr('colOriginalPdf')"></th><th x-text="tr('colUpdated')"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="f in files" :key="f.id">
+              <tr>
+                <td><span class="tickr" x-text="f.ticker || '—'"></span></td>
+                <td class="source-row__file" :title="f.source_file" x-text="f.source_file"></td>
+                <td x-text="f.doctype || '—'"></td>
+                <td x-text="f.fiscal_year || '—'"></td>
+                <td class="num" x-text="f.n_pages_total ?? '—'"></td>
+                <td>
+                  <span class="chip" :style="f.origin_guess.startsWith('TiniX') ? '--c: var(--br-compare)' : '--c: var(--text-3)'"
+                        x-text="f.origin_guess"></span>
+                </td>
+                <td class="num" x-text="f.document_version"></td>
+                <td>
+                  <span class="chip" :style="f.is_active ? '--c: var(--px-up)' : '--c: var(--px-down)'"
+                        x-text="f.is_active ? tr('activeYes') : tr('activeNo')"></span>
+                </td>
+                <td>
+                  <span x-show="f.pdf_missing" class="chip" style="--c: var(--px-down)"
+                        :title="uiLanguage === 'vi' ? 'pdf_hash là placeholder - PDF gốc không còn trên đĩa' : 'pdf_hash is a placeholder - the original PDF is no longer on disk'" x-text="tr('pdfMissing')"></span>
+                  <span x-show="!f.pdf_missing" x-text="tr('pdfPresent')"></span>
+                </td>
+                <td x-text="f.updated_at ? formatDate(f.updated_at) : '—'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="muted-empty" x-show="!files.length && !filesLoading" x-text="tr('filesEmpty')">
+        </div>
+      </div>
+    </div>
+
+    <div x-show="adminTab === 'vietstock'" x-cloak>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel__head">
+          <span class="panel__title" x-text="tr('sync')"></span>
+          <span class="panel__note" x-text="vietstockSummary.last_run_at ? formatDate(vietstockSummary.last_run_at) : tr('notRun')"></span>
+        </div>
+        <p class="explain" style="padding:0 14px 10px" x-text="tr('syncNote')"></p>
+        <div class="stat-grid" style="padding:0 14px 14px">
+          <div class="stat-card"><span class="stat-card__label">Runs</span><span class="stat-card__value" x-text="vietstockSummary.runs ?? '—'"></span></div>
+          <div class="stat-card"><span class="stat-card__label">Documents</span><span class="stat-card__value" x-text="vietstockSummary.documents ?? '—'"></span></div>
+          <div class="stat-card"><span class="stat-card__label">Downloaded PDF</span><span class="stat-card__value" x-text="vietstockSummary.downloaded ?? '—'"></span></div>
+          <div class="stat-card"><span class="stat-card__label">Access denied</span><span class="stat-card__value" x-text="vietstockSummary.access_denied ?? '—'"></span></div>
+          <div class="stat-card"><span class="stat-card__label">News / events</span><span class="stat-card__value" x-text="vietstockSummary.news_events ?? '—'"></span></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel__head"><span class="panel__title">Recent runs</span></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>ID</th><th>Scope</th><th>Status</th><th>Started</th><th>Counters</th><th>Error</th></tr></thead><tbody>
+          <template x-for="run in vietstockRuns" :key="run.id"><tr>
+            <td class="num" x-text="run.id"></td><td x-text="run.scope"></td><td><span class="chip" :style="run.status === 'completed' ? '--c: var(--px-up)' : (run.status === 'failed' ? '--c: var(--px-down)' : '--c: var(--px-ref)')" x-text="run.status"></span></td>
+            <td x-text="formatDate(run.started_at)"></td><td class="admin-metrics" :title="JSON.stringify(run.counters)" x-text="formatMetrics(run.counters)"></td><td class="admin-metrics" :title="run.error_summary || ''" x-text="run.error_summary || '—'"></td>
+          </tr></template>
+        </tbody></table><div class="muted-empty" x-show="!vietstockRuns.length" x-text="tr('notRun')"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel__head"><span class="panel__title">Latest ticker status</span><span class="panel__note" x-text="vietstockTickers.length + ' tickers'"></span></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Ticker</th><th>Status</th><th>HTTP</th><th>Documents</th><th>News</th><th>Fetched</th><th>Error</th></tr></thead><tbody>
+          <template x-for="row in vietstockTickers" :key="row.ticker"><tr>
+            <td><span class="tickr" x-text="row.ticker"></span></td><td x-text="row.status"></td><td class="num" x-text="row.http_status ?? '—'"></td><td class="num" x-text="row.document_count"></td><td class="num" x-text="row.news_count"></td><td x-text="formatDate(row.fetched_at)"></td><td class="admin-metrics" :title="row.error_message || ''" x-text="row.error_message || '—'"></td>
+          </tr></template>
+        </tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ---- Biến động giá (company_price_snapshot) (2026-09-21) ---- -->
+    <div x-show="adminTab === 'prices'" x-cloak class="panel">
+      <div class="panel__head">
+        <span class="panel__title" x-text="tr('tabPrices')"></span>
+        <span class="panel__note" x-text="priceTickers.length + ' ' + tr('pricesCountSuffix')"></span>
+        <div style="flex:1"></div>
+        <select x-model="priceTickerSelected" @change="loadPriceSeries()" style="max-width:140px">
+          <template x-for="t in priceTickers" :key="t.ticker">
+            <option :value="t.ticker" x-text="t.ticker"></option>
+          </template>
+        </select>
+        <template x-for="w in [30, 90, 180, 365]" :key="w">
+          <button class="seg" :aria-pressed="priceWindowDays === w"
+                  @click="priceWindowDays = w; loadPriceSeries()" x-text="w + ' ' + tr('daySuffix')"></button>
+        </template>
+      </div>
+      <p class="explain" style="padding: 0 14px 10px" x-text="tr('pricesExplain')">
+      </p>
+      <div class="muted-empty" x-show="!priceTickers.length && !pricesLoading" x-text="tr('pricesEmptyTickers')">
+      </div>
+      <template x-if="priceTickerMeta()">
+        <div class="stat-grid" style="padding:0 14px 14px">
+          <div class="stat-card"><span class="stat-card__label" x-text="tr('colDaysAvailable')"></span><span class="stat-card__value" x-text="priceTickerMeta().n_days"></span></div>
+          <div class="stat-card"><span class="stat-card__label" x-text="tr('colFromDate')"></span><span class="stat-card__value" x-text="priceTickerMeta().date_min"></span></div>
+          <div class="stat-card"><span class="stat-card__label" x-text="tr('colToDate')"></span><span class="stat-card__value" x-text="priceTickerMeta().date_max"></span></div>
+        </div>
+      </template>
+      <div style="padding: 0 14px 18px; height: 360px; position: relative;">
+        <canvas x-ref="priceChartCanvas" x-show="priceSeries.length" x-cloak></canvas>
+        <div class="muted-empty" x-show="priceTickerSelected && !priceSeries.length && !pricesLoading" x-text="tr('pricesEmptySeries')">
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</template>
+
+<div class="toast" x-show="toast" x-cloak x-transition>
+  <i data-lucide="check" style="width:15px;height:15px;color:var(--px-up)"></i>
+  <span x-text="toast"></span>
+</div>
+</body>
+</html>

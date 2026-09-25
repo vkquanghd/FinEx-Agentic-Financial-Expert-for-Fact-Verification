@@ -1,0 +1,72 @@
+SQLAlchemy==2.0.35
+# psycopg2-binary (below) now serves BOTH the structured tables (via
+# SQLAlchemy's postgresql+psycopg2:// dialect, src/core/db.py) AND the RAG
+# vector table (src/retrieval/vector_store.py's raw psycopg2 connection) -
+# migrated 2026-07-26 off a two-database setup (MySQL via PyMySQL + a
+# separate pgvector service) onto one Postgres database. PyMySQL removed,
+# no longer needed. See docs/PROGRESS.md and
+# infra/postgres/migrations/001_init_schema.sql.
+python-dotenv==1.0.1
+openpyxl==3.1.5
+streamlit==1.39.0
+pandas==2.2.3
+scikit-learn==1.5.2
+numpy==2.1.3
+# --- Database (src/core/db.py) + RAG path (src/retrieval/) ---
+psycopg2-binary==2.9.10   # Postgres/pgvector client (plain SQL, no separate `pgvector` python package needed)
+sentence-transformers>=3.0  # loads BAAI/bge-m3 for src/retrieval/embeddings.py; first run downloads ~2.2GB of weights, needs real internet access
+# Optional, NOT required: pip install causalml separately if you want its
+# meta-learners as a cross-check in src/causal/treatment_effect.py. It's a
+# heavy/fragile build (Cython + xgboost) so it's not pinned here - the
+# T-learner implemented directly with scikit-learn above is not a
+# placeholder, it's the same method causalml wraps.
+# Optional, NOT required: pip install econml separately if you want
+# estimate_ate_dml() (R-learner/Double ML cross-check, RQ6, added
+# 2026-07-26) - heavier install than the T-learner above (pulls in numba,
+# shap, and others transitively), and NOT wired into the live Router (see
+# src/causal/treatment_effect.py's module docstring) - so it's kept out of
+# the pinned/required list the same way causalml is, above.
+# --- Market snapshot (scripts/market_snapshot.py) ---
+# Unpinned deliberately - actively-maintained package (v4.0.0, April 2026),
+# pinning risks breaking on an API that's still evolving. requests is for
+# the FRED oil-price call (usually already present via another dependency,
+# listed explicitly here so it's not silently relied upon).
+vnstock
+requests
+# --- Market factor charts (scripts/market_factor_chart.py, Step 14) ---
+matplotlib
+# --- Data EDA notebook (notebooks/01_data_inventory_eda.ipynb) ---
+jupyter
+ipykernel
+# --- Nhánh B Text-to-SQL Agent, Gate 2b (src/structured/text_to_sql_agent.py) ---
+# Pure-Python SQL parser, no heavy build deps (unlike causalml above) - used
+# for _check_schema_alignment_ast(), an AST-based cross-check that also
+# catches bare/unqualified hallucinated columns that gate 2's regex check
+# cannot see. Degrades gracefully (available=False) if not installed -
+# not a hard requirement for the rest of the module to run.
+sqlglot
+# --- PREDICTIVE branch M2/M3 + SHAP (scripts/predictive/train_advanced_
+# models.py, Task #20, 2026-07-30 methodology roadmap item 6) ---
+# xgboost required for M3 (gradient-boosted trees) - RandomForestRegressor
+# (M2) comes from scikit-learn above, no separate package needed. shap
+# required for the post-hoc explanation step on M3 - explicitly NOT treated
+# as a causal explanation method anywhere it's used (see that script's
+# module docstring) - it explains what the fitted model learned, not a
+# causal effect, same distinction src/causal/treatment_effect.py already
+# draws between the T-learner/DML estimators and any correlational model.
+xgboost==2.1.1
+shap==0.46.0
+# --- Demo web retrieval (scripts/web_fallback_lookup.py and
+# scripts/web_news_ingest.py) ---
+# This supports the presentation/demo path only. It is deliberately not
+# included in the thesis benchmark because live web results are not
+# reproducible, but keeping it here ensures a fresh demo environment can
+# run the documented web ingest commands.
+ddgs>=9.16.0
+
+# --- Vietstock Premium host-side sync (interactive account session) ---
+# Install the matching Chromium binary once with:
+#   python -m playwright install chromium
+# The crawler uses a persistent local profile; it never receives or stores a
+# username/password in project configuration.
+playwright>=1.55,<2
